@@ -1,6 +1,8 @@
 use std::collections::{HashSet, HashMap};
 use std::cell::RefCell;
 use std::rc::Rc;
+use either::*;
+use std::marker::PhantomPinned;
 
 #[derive(Debug)]
 enum Primitive {
@@ -150,10 +152,29 @@ impl Into<Vec<Primitive>> for Primitive {
 //     }
 // }
 
+struct Entity {
+    object: Object,
+    referenced: bool,
+}
+
+impl Entity {
+    pub fn new<V: Into<Vec<Primitive>>>(inner: V) -> Self {
+        Entity {
+            object: Object::new(inner),
+            referenced: false,
+        }
+    }
+    pub fn as_ref(&mut self) -> *const Object {
+        self.referenced = true;
+        &self.object
+    }
+}
+
 #[derive(Debug)]
 struct Object {
     inner: Vec<Primitive>,
     number: Option<u64>,
+    _pinned: PhantomPinned, 
 }
 
 impl Object {
@@ -161,6 +182,7 @@ impl Object {
         Object {
             inner: inner.into(),
             number: None,
+            _pinned: PhantomPinned,
         }
     }
 }
@@ -189,39 +211,39 @@ impl Document {
         let mut pending: HashSet<*const Object> = HashSet::new();
         let mut resolved: HashMap<*const Object, u64> = HashMap::new();
 
-        self.objects.iter_mut().for_each(|object: &mut Object| {
-            object.number = Some(number);
-            println!("locking object {:?}", object as *const Object);
-            resolved.insert(object as *const Object, number);
-            number += 1;
+        // self.objects.iter_mut().for_each(|object: &mut Object| {
+        //     object.number = Some(number);
+        //     println!("locking object {:?}", object as *const Object);
+        //     resolved.insert(object as *const Object, number);
+        //     number += 1;
 
-            object.inner.iter_mut().for_each(|prim| {
-                prim.iter_mut().for_each(|elm| 
-                    match elm {
-                    Primitive::Pair(_, value) => {
-                        match value.as_ref() {
-                            Primitive::Ref(reference) => {
-                                if resolved.contains_key(reference) {
-                                    *elm = Primitive::Reference(*resolved.get(reference).unwrap());
-                                    println!("resolved");
-                                } else {
-                                    println!("inquire {:?}", reference);
-                                    println!("{:#?}", resolved);
-                                    pending.insert(reference.clone());
-                                }
-                                println!("kokokoko");
-                            },
-                            _ => {}
-                        }
+        //     object.inner.iter_mut().for_each(|prim| {
+        //         prim.iter_mut().for_each(|elm| 
+        //             match elm {
+        //             Primitive::Pair(_, value) => {
+        //                 match value.as_ref() {
+        //                     Primitive::Ref(reference) => {
+        //                         if resolved.contains_key(reference) {
+        //                             *elm = Primitive::Reference(*resolved.get(reference).unwrap());
+        //                             println!("resolved");
+        //                         } else {
+        //                             println!("inquire {:?}", reference);
+        //                             println!("{:#?}", resolved);
+        //                             pending.insert(reference.clone());
+        //                         }
+        //                         println!("kokokoko");
+        //                     },
+        //                     _ => {}
+        //                 }
 
-                    },
-                    _ => { 
+        //             },
+        //             _ => { 
                         
-                    } 
-                });
-            });
+        //             } 
+        //         });
+        //     });
 
-        });
+        // });
 
         println!("{:#?}", resolved);
 
@@ -418,17 +440,20 @@ impl Into<Vec<Object>> for Page {
 }
 
 fn main() {
-    let mut doc: Document = Document::new();
+    // let mut doc: Document = Document::new();
 
-    let mut page = Page::new(MediaBox::A4);
-    let mut page: Vec<Object> = page.into();
+    // let mut page = Page::new(MediaBox::A4);
+    // let mut page: Vec<Object> = page.into();
 
-    doc.appendix(page);
+    // doc.appendix(page);
 
-    let mut page = Page::new(MediaBox::A4);
-    let mut page: Vec<Object> = page.into();
+    // let mut page = Page::new(MediaBox::A4);
+    // let mut page: Vec<Object> = page.into();
 
-    doc.appendix(page);
+    // doc.appendix(page);
 
-    doc.encode();
+    // doc.encode();
+    let mut entity = Entity::new(Primitive::Dictionary(vec![]));
+    _ = entity.as_ref();
+    _ = entity.as_ref();
 }
