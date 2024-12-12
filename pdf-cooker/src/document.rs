@@ -24,6 +24,18 @@ impl Document {
         self.objects.extend(objects.into());
     }
 
+    pub unsafe fn unsafe_flatten(&mut self) -> Vec<&mut Primitive> {
+        self.objects.iter_mut().map(|object| unsafe { object.get_unchecked_mut().iter_mut() }).flatten().collect()
+    }
+
+    pub fn flatten(&mut self, f: impl Fn(&mut Primitive)) {
+        self.objects.iter_mut().for_each(|object| object.fmap(|prims, _| {
+            prims.iter_mut().map(|prim| prim.iter_mut()).flatten().for_each(|prim| {
+                f(prim);
+            });
+        }));
+    }
+
     pub fn resolve(&mut self) {
         type Number = u64;
         let mut query: HashMap<*const RawObject, Number> = HashMap::new(); 
@@ -34,7 +46,7 @@ impl Document {
             }
         }
 
-        self.objects.iter_mut().map(|object| unsafe { object.get_unchecked_mut().iter_mut() }).flatten().for_each(|prim| {
+        self.flatten(|prim| {
             if let Primitive::Pair(_, ref mut value) = prim {
                 if let Primitive::Ref(ptr) = value.as_ref() {
                     **value = Primitive::Solved(*query.get(&ptr).unwrap());
@@ -42,15 +54,13 @@ impl Document {
             }
         });
 
-        // self.objects.iter_mut().for_each(|object| object.fmap(|prims, _| {
-        //     prims.iter_mut().map(|prim| prim.iter_mut()).flatten().for_each(|prim| {
-        //         if let Primitive::Pair(_, ref mut value) = prim {
-        //             if let Primitive::Ref(ptr) = value.as_ref() {
-        //                 **value = Primitive::Solved(*query.get(&ptr).unwrap());
-        //             }
-        //         }
-        //     });
-        // }));
+        unsafe {self.unsafe_flatten()}.iter_mut().for_each(|prim| {
+            if let Primitive::Pair(_, ref mut value) = prim {
+                if let Primitive::Ref(ptr) = value.as_ref() {
+                    **value = Primitive::Solved(*query.get(&ptr).unwrap());
+                }
+            }
+        });
     }
 }
 
