@@ -1,12 +1,8 @@
-use std::pin::Pin;
-use pin_project::{pin_project, pinned_drop};
 use either::*;
+use std::ops::{Deref, DerefMut};
+
 use crate::utils::*;
-
-#[derive(Debug)]
-pub enum Primitive {
-
-}
+use crate::prim::*;
 
 #[derive(Debug)]
 pub struct RawObject {
@@ -23,9 +19,22 @@ impl RawObject {
     }
 }
 
+impl Deref for RawObject {
+    type Target = Vec<Primitive>;
+    fn deref(&self) -> &Self::Target {
+        &self.inner
+    }
+}
+
+impl DerefMut for RawObject {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.inner
+    }
+}
+
 #[derive(Debug)]
 pub struct Object {
-    inner: Either<RawObject, Fix<RawObject>>,
+    pub inner: Either<RawObject, Fix<RawObject>>,
 }
 
 impl Object {
@@ -35,10 +44,19 @@ impl Object {
         }
     }
 
-    pub fn fmap<R>(&mut self, f: impl Fn(&mut Option<u64>) -> R) -> R {
+    pub fn fmap<R>(&mut self, f: impl FnOnce(&mut Vec<Primitive>, &mut Option<u64>) -> R) -> R {
         match self.inner {
-            Left(ref mut raw) => f(&mut raw.number),
-            Right(ref mut fix) => fix.fmap(|proj| f(&mut proj.inner.number))
+            Left(ref mut raw) => f(&mut raw.inner, &mut raw.number),
+            Right(ref mut fix) => fix.fmap(|proj| f(&mut proj.inner.inner, &mut proj.inner.number))
+        }
+    }
+
+    pub unsafe fn get_unchecked_mut(&mut self) -> &mut RawObject {
+        match self.inner {
+            Left(ref mut raw) => raw,
+            Right(ref mut fix) => {
+                return unsafe { fix.as_mut().get_unchecked_mut() };
+            } 
         }
     }
 
@@ -54,5 +72,18 @@ impl Object {
         }
 
         unreachable!()
+    }
+}
+
+impl Deref for Object {
+    type Target = Either<RawObject, Fix<RawObject>>;
+    fn deref(&self) -> &Self::Target {
+        &self.inner
+    }
+}
+
+impl DerefMut for Object {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.inner
     }
 }

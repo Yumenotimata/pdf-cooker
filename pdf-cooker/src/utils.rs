@@ -13,7 +13,7 @@ impl<T> RawFix<T> {
         Box::pin(RawFix{inner})
     }
 
-    pub fn fmap<R>(self: Pin<&mut Self>, f: impl Fn(RawFixProj<T>) -> R) -> R {
+    pub fn fmap<R>(self: Pin<&mut Self>, f: impl FnOnce(RawFixProj<T>) -> R) -> R {
         f(self.project())
     }
 }
@@ -43,7 +43,7 @@ impl<T> Fix<T> {
         }
     }
 
-    pub fn fmap<R>(&mut self, f: impl Fn(RawFixProj<T>) -> R) -> R {
+    pub fn fmap<R>(&mut self, f: impl FnOnce(RawFixProj<T>) -> R) -> R {
         self.as_mut().fmap(f)
     }
 }
