@@ -3,13 +3,13 @@ use crate::object::*;
 #[derive(Debug)]
 pub enum Primitive {
     Array(Vec<Primitive>),
-    Dictionary(Vec<Primitive>),
+    Map(Vec<Primitive>),
     Number(u64),
     Name(String),
     ParentRef,
     Pair(Box<Primitive>, Box<Primitive>),
-    Ref(*const RawObject),
-    Solved(u64),
+    Defer(*const RawObject),
+    Ref(u64),
     Stream(String),
 }
 
@@ -48,7 +48,7 @@ impl<'a> Iterator for PrimitiveMutIterator<'a> {
                         let array: Vec<&'a mut Primitive> = array.iter_mut().map(|a| &mut *a.as_mut_ptr()).collect();
                         self.stack.extend(array);
                     }
-                    Primitive::Dictionary(ref mut dictionary) => {
+                    Primitive::Map(ref mut dictionary) => {
                         self.stack.extend(dictionary.iter_mut());
                     }
                     _ => {}

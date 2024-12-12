@@ -24,10 +24,6 @@ impl Document {
         self.objects.extend(objects.into());
     }
 
-    pub unsafe fn unsafe_flatten(&mut self) -> Vec<&mut Primitive> {
-        self.objects.iter_mut().map(|object| unsafe { object.get_unchecked_mut().iter_mut() }).flatten().collect()
-    }
-
     pub fn flatten(&mut self, f: impl Fn(&mut Primitive)) {
         self.objects.iter_mut().for_each(|object| object.fmap(|prims, _| {
             prims.iter_mut().map(|prim| prim.iter_mut()).flatten().for_each(|prim| {
@@ -48,16 +44,8 @@ impl Document {
 
         self.flatten(|prim| {
             if let Primitive::Pair(_, ref mut value) = prim {
-                if let Primitive::Ref(ptr) = value.as_ref() {
-                    **value = Primitive::Solved(*query.get(&ptr).unwrap());
-                }
-            }
-        });
-
-        unsafe {self.unsafe_flatten()}.iter_mut().for_each(|prim| {
-            if let Primitive::Pair(_, ref mut value) = prim {
-                if let Primitive::Ref(ptr) = value.as_ref() {
-                    **value = Primitive::Solved(*query.get(&ptr).unwrap());
+                if let Primitive::Defer(ptr) = value.as_ref() {
+                    **value = Primitive::Ref(*query.get(&ptr).unwrap());
                 }
             }
         });
@@ -99,7 +87,7 @@ impl Resource {
 impl Into<Object> for Resource {
     fn into(self) -> Object {
         Object::new(vec![
-            Primitive::Dictionary(
+            Primitive::Map(
                 self.fonts.into_iter().map(Into::into).collect()
             )]
         )
@@ -110,7 +98,7 @@ impl Into<Primitive> for Font {
     fn into(self) -> Primitive {
         Primitive::pair(
             Primitive::name(self.identifier), 
-            Primitive::Dictionary(vec![
+            Primitive::Map(vec![
                 Primitive::pair(Primitive::name("Type"), Primitive::name("Font")),
                 Primitive::pair(Primitive::name("BaseFont"), Primitive::name(self.base)),
                 Primitive::pair(Primitive::name("SubType"), Primitive::name("Type1"))
@@ -128,8 +116,8 @@ impl Into<Primitive> for MediaBox {
     fn into(self) -> Primitive {
         Primitive::Array(
             match self {
-                MediaBox::A4 => [0, 0, 595, 842].into_iter().map(Primitive::Number).collect()
-            }
+                MediaBox::A4 => [0, 0, 595, 842]
+            }.into_iter().map(Primitive::Number).collect()
         )
     }
 }
@@ -167,11 +155,11 @@ impl Page {
 impl Into<Vec<Object>> for Page {
     fn into(self) -> Vec<Object> {
         let mut resource: Object = self.resource.into();
-        let pages = Object::new(Primitive::Dictionary(
+        let pages = Object::new(Primitive::Map(
             vec![
                 Primitive::pair(Primitive::name("Type"), Primitive::name("Page")),
                 Primitive::pair(Primitive::name("Parent"), Primitive::ParentRef),
-                Primitive::pair(Primitive::name("Resource"), Primitive::Ref(resource.as_ref())),
+                Primitive::pair(Primitive::name("Resource"), Primitive::Defer(resource.as_ref())),
                 Primitive::pair(Primitive::name("MediaBox"), self.mediabox.into()),
             ]
         ));
