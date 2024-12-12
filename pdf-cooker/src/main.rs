@@ -1,47 +1,31 @@
 use std::collections::{HashSet, HashMap};
+use std::marker::PhantomPinned;
+use std::pin::Pin;
+use pin_project::pin_project;
+use std::mem;
 use std::cell::RefCell;
 use std::rc::Rc;
-use either::*;
-use std::marker::PhantomPinned;
 
 #[derive(Debug)]
-enum Primitive {
-    Dictionary(Vec<Primitive>),
-    Pair(Box<Primitive>, Box<Primitive>),
-    Name(String),
+pub enum Primitive {
     Array(Vec<Primitive>),
-    Ref(*const Object),
-    Reference(u64),
-    Stream(String),
+    Dictionary(Vec<Primitive>),
     Number(u64),
+    Name(String),
     ParentRef,
+    Pair(Box<Primitive>, Box<Primitive>),
+    Ref(Rc<RefCell<Pin<Box<Object>>>>),
+    Solved(u64),
+    Stream(String),
 }
 
 impl Primitive {
-    pub fn dictionary(pairs: Vec<Primitive>) -> Self {
-        Primitive::Dictionary(pairs)
-    }
-
     pub fn name<S: Into<String>>(name: S) -> Self {
         Primitive::Name(name.into())
     }
 
-    pub fn array(array: Vec<Primitive>) -> Self {
-        Primitive::Array(array)
-    }
-
-    pub fn reference(reference: &Object) -> Self {
-        Primitive::Ref(reference)
-    }
-
     pub fn pair(key: Primitive, value: Primitive) -> Self {
         Primitive::Pair(Box::new(key), Box::new(value))
-    }
-
-    pub fn iter(&self) -> PrimitiveIterator {
-        PrimitiveIterator {
-            stack: vec![self]
-        }
     }
 
     pub fn iter_mut(&mut self) -> PrimitiveMutIterator {
@@ -51,54 +35,8 @@ impl Primitive {
     }
 
     pub fn as_mut_ptr(&mut self) -> *mut Primitive {
-        // match self {
-        //     Primitive::Array(array) => (*array).as_mut_ptr(),
-        //     Primitive::Dictionary(dictionary) => dictionary.as_mut_ptr(),
-        //     Primitive::Name(ref mut name) => name.as_mut_ptr() as *mut Primitive,
-        //     Primitive::Ref(inner) => Box::into_raw(Box::new(Primitive::Ref(*inner))) as *mut Primitive,
-        //     _ => std::ptr::null_mut()
-        // }
         self as *mut Primitive
     } 
-
-    pub fn is_type<S: Into<String>>(&self, name: S) -> bool {
-        let name = name.into();
-        self.iter().any(|object| {
-            matches!(
-                object, 
-                Primitive::Pair(key, value)
-                    if matches!(
-                        (key.as_ref(), value.as_ref()),
-                        (Primitive::Name(key), Primitive::Name(value))
-                            if key == "Type" && value == &name
-                    )
-            )
-        })
-    }
-}
-
-struct PrimitiveIterator<'a> {
-    stack: Vec<&'a Primitive>
-}
-
-impl<'a> Iterator for PrimitiveIterator<'a> {
-    type Item = &'a Primitive;
-
-    // TODO:
-    // comprehensive?
-    fn next(&mut self) -> Option<Self::Item> {
-        while let Some(current) = self.stack.pop() {
-            match current {
-                Primitive::Array(array) => self.stack.extend(array),
-                Primitive::Dictionary(dictionary) => self.stack.extend(dictionary), 
-                _ => {}
-            }
-
-            return Some(current);
-        }
-
-        None
-    }
 }
 
 struct PrimitiveMutIterator<'a> {
@@ -137,36 +75,19 @@ impl Into<Vec<Primitive>> for Primitive {
     }
 }
 
-// impl std::fmt::Display for Primitive {
-//     fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
-//         match self {
-//             Primitive::Dictionary(news) => {
-//                 news.iter()
-//                     .map(|new| write!(f, "<<{} {}>>", new.key, new.value))
-//                     .collect()
-//             },
-//             otherwise => {
-//                 Ok(())
-//             }
-//         }
-//     }
-// }
-
-struct Entity {
-    object: Object,
-    referenced: bool,
+struct SharedPin<T> {
+    inner: Rc<RefCell<Pin<Box<T>>>>,
 }
 
-impl Entity {
-    pub fn new<V: Into<Vec<Primitive>>>(inner: V) -> Self {
-        Entity {
-            object: Object::new(inner),
-            referenced: false,
+impl<T> SharedPin<T> {
+    pub fn new(inner: T) -> Self {
+        SharedPin {
+            inner: Rc::new(RefCell::new(Box::pin(inner)))
         }
     }
-    pub fn as_ref(&mut self) -> *const Object {
-        self.referenced = true;
-        &self.object
+
+    pub fn fmap<F: Fn(&mut T)>(&mut self, f: F) {
+        
     }
 }
 
@@ -174,7 +95,6 @@ impl Entity {
 struct Object {
     inner: Vec<Primitive>,
     number: Option<u64>,
-    _pinned: PhantomPinned, 
 }
 
 impl Object {
@@ -182,144 +102,236 @@ impl Object {
         Object {
             inner: inner.into(),
             number: None,
+        }
+    }
+}
+
+#[derive(Debug)]
+enum ObjectProj {
+    Pinned(Rc<RefCell<Pin<Box<Object>>>>),
+    Unpinned(Object)
+}
+
+impl ObjectProj {
+    pub fn map<R>(&mut self, f: impl Fn(&mut Pin<&mut Object>) -> R) -> R {
+        match self {
+            ObjectProj::Pinned(pinned) => {
+                let mut this = pinned.borrow_mut();
+                let mut this = this.as_mut();
+                f(&mut this)
+            },
+            ObjectProj::Unpinned(unpinned) => {
+                f(&mut Pin::new(unpinned))
+            }
+        }
+    }
+}
+
+#[derive(Debug)]
+struct Entity {
+    inner: ObjectProj,
+    _pinned: PhantomPinned,
+}
+
+impl Entity {
+    pub fn new<V: Into<Vec<Primitive>>>(inner: V) -> Self {
+        Entity {
+            inner: ObjectProj::Unpinned(Object::new(inner)),
             _pinned: PhantomPinned,
         }
+    }
+
+    pub fn as_ref(&mut self) -> Rc<RefCell<Pin<Box<Object>>>> {
+        if let ObjectProj::Unpinned(ref mut x) = self.inner {
+            let obj = std::mem::replace(x, Object { inner: vec![], number: None });
+            self.inner = ObjectProj::Pinned(Rc::new(RefCell::new(Box::pin(obj))));
+        }
+    
+        if let ObjectProj::Pinned(ref mut pinned) = self.inner {
+            return pinned.clone();
+        }
+    
+        unreachable!();
     }
 }
 
 struct Document {
-    objects: Vec<Object>
+    entity: Vec<Entity>,
+}
+
+impl IntoIterator for Primitive {
+    type Item = Primitive;
+    type IntoIter = PrimitiveIntoIterator;
+
+    fn into_iter(self) -> Self::IntoIter {
+        match self {
+            Primitive::Array(array) => PrimitiveIntoIterator::Array(array.into_iter()),
+            Primitive::Dictionary(dictionary) => PrimitiveIntoIterator::Dictionary(dictionary.into_iter()),
+            _ => PrimitiveIntoIterator::Empty,
+        }
+    }
+}
+
+pub enum PrimitiveIntoIterator {
+    Array(std::vec::IntoIter<Primitive>),
+    Dictionary(std::vec::IntoIter<Primitive>),
+    Empty,
+}
+
+impl Iterator for PrimitiveIntoIterator {
+    type Item = Primitive;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        match self {
+            PrimitiveIntoIterator::Array(iter) => iter.next(),
+            PrimitiveIntoIterator::Dictionary(iter) => iter.next(),
+            PrimitiveIntoIterator::Empty => None,
+        }
+    }
 }
 
 impl Document {
-    pub fn new() -> Document {
+    pub fn new() -> Self {
         Document {
-            objects: vec![],
+            entity: vec![],
         }
     }
-
-    pub fn append<O: Into<Object>>(&mut self, object: O) {
-        self.objects.push(object.into());
+    pub fn append<E: Into<Entity>>(&mut self, entity: E) {
+        self.entity.push(entity.into());
     }
 
-    pub fn appendix<V: Into<Vec<Object>>>(&mut self, objects: V) {
-        self.objects.extend(objects.into());
+    pub fn appendix<E: Into<Vec<Entity>>>(&mut self, entities: E) {
+        self.entity.extend(entities.into());
     }
 
     pub fn resolve(&mut self) {
-        let mut number: u64 = 1;
-        let mut pending: HashSet<*const Object> = HashSet::new();
-        let mut resolved: HashMap<*const Object, u64> = HashMap::new();
-
-        // self.objects.iter_mut().for_each(|object: &mut Object| {
-        //     object.number = Some(number);
-        //     println!("locking object {:?}", object as *const Object);
-        //     resolved.insert(object as *const Object, number);
-        //     number += 1;
-
-        //     object.inner.iter_mut().for_each(|prim| {
-        //         prim.iter_mut().for_each(|elm| 
-        //             match elm {
-        //             Primitive::Pair(_, value) => {
-        //                 match value.as_ref() {
-        //                     Primitive::Ref(reference) => {
-        //                         if resolved.contains_key(reference) {
-        //                             *elm = Primitive::Reference(*resolved.get(reference).unwrap());
-        //                             println!("resolved");
-        //                         } else {
-        //                             println!("inquire {:?}", reference);
-        //                             println!("{:#?}", resolved);
-        //                             pending.insert(reference.clone());
-        //                         }
-        //                         println!("kokokoko");
-        //                     },
-        //                     _ => {}
-        //                 }
-
-        //             },
-        //             _ => { 
-                        
-        //             } 
-        //         });
-        //     });
-
-        // });
-
-        println!("{:#?}", resolved);
-
-            // object.inner.iter_mut().for_each(|prim| match prim {
-            //     // Primitive::Pair(_, value) => {
-            //     //     match value.as_ref() {
-            //     //         Primitive::Ref(reference) => {
-            //     //             if resolved.contains_key(reference) {
-            //     //                 *prim = Primitive::Reference(*resolved.get(reference).unwrap());
-            //     //             } else {
-            //     //                 pending.insert(reference.clone());
-            //     //             }
-            //     //         },
-            //     //         _ => {}
-            //     //     }
-
-            //     // },
-            //     _ => { println!("koko");} 
-            // });
-        // });
-    }
-
-    pub fn encode(&mut self) -> Result<(), ()> {
-        let mut buf: Vec<u8> = Vec::new();
-        buf.extend_from_slice("%PDF-1.7\n".as_bytes());
-        buf.extend_from_slice(&[0xe2, 0xe3, 0xcf, 0xd3, '\n' as u8]);
-        // buf.extend_from_slice(
-        //     format!("{}", Primitive::Dictionary(
-        //         vec![Pair{key: Primitive::Number, value: Primitive::Number}]
-        //     ))
-        //     .as_bytes()
-        // );
-
-        let pages: Vec<&Object> = self.objects
-            .iter()
-            .filter(|obj| obj.inner.iter().any(|prim| prim.is_type("Page")))
-            .collect();
-
-        // println!("{:#?}", pages);
-
-        let page_object_refs: Vec<Primitive> = pages
-            .iter()
-            .map(|page: &&Object| Primitive::Ref(*page))
-            .collect();
-
-        // let pages = Object::new(Primitive::Dictionary(vec![
-        //     Primitive::pair(Primitive::name("Type"), Primitive::name("Pages")),
-        //     Primitive::pair(Primitive::name("Count"), Primitive::Number(page_object_refs.len() as u64)),
-        //     Primitive::pair(Primitive::name("Kids"), Primitive::Array(page_object_refs)),
-        // ]));
-
-        // let catalog = Object::new(Primitive::Dictionary(vec![
-        //     Primitive::pair(Primitive::name("Type"), Primitive::name("Catalog")),
-        //     Primitive::pair(Primitive::name("Pages"), Primitive::Ref(&pages)),
-        // ]));
-        
-        // self.objects.push(catalog);
-        // self.objects.push(pages);
-        
-        self.resolve();
-        println!("{:#?}", self.objects);
-
-        let mut obj = Primitive::Array(vec![]);
-        unsafe {
-            println!("{:#?}", obj.as_mut_ptr());
-            println!("{:#?}", &obj as *const Primitive);
+        for (number, entity) in self.entity.iter_mut().enumerate() {
+            entity.inner.map(|obj| {
+                obj.number = Some(number as u64)
+            });
         }
 
-        let out: String = buf
-            .iter()
-            .map(|&c| if c.is_ascii() { c as char } else {'?'} )
-            .collect();
+        for (number, entity) in self.entity.iter_mut().enumerate() {
+            entity.inner.map(|pin| {
+                pin.inner.iter_mut().map(|x| x.iter_mut()).flatten().for_each(|prim| {
+                    match prim {
+                        Primitive::Pair(_, ref mut value) => {
+                            if let Primitive::Ref(ref reference) = value.as_ref() {
+                                let number: u64;
+                                {
+                                    let mut this = reference.borrow_mut();
+                                    let this = this.as_mut();
+                                    unsafe {
+                                        let this = this.get_unchecked_mut();
+                                        number = this.number.unwrap();
+                                    }
+                                }
+                            *prim = Primitive::Solved(number);
+                            }
+                        },
+                        _ => {}
+                    }
+                });
+                // }
+            });
+            // match &mut entity.inner {
+            //     ObjectProj::Pinned(pinned) => {
+            //         let mut this = pinned.borrow_mut();
+            //         let mut this = this.as_mut();
+            //         unsafe {
+            //             let mut this = this.get_unchecked_mut();
+            //             this.inner.iter_mut().map(|x| x.iter_mut()).flatten().for_each(|prim| {
+            //                 match prim {
+            //                     Primitive::Pair(_, ref mut value) => {
+            //                         if let Primitive::Ref(ref reference) = value.as_ref() {
+            //                             let number: u64;
+            //                             {
+            //                                 let mut this = reference.borrow_mut();
+            //                                 let mut this = this.as_mut();
+            //                                 // unsafe {
+            //                                     let this = this.get_unchecked_mut();
+            //                                     number = this.number.unwrap();
+            //                                 // }
+            //                             }
+            //                             *prim = Primitive::Solved(number);
+            //                         }
+            //                     }
+            //                     _ => {},
+            //                 }
+            //             });
+            //         }
+            //     },
+            //     ObjectProj::Unpinned(unpinned) => {
+            //         unpinned.inner.iter_mut().map(|x| x.iter_mut()).flatten().for_each(|prim| {
+            //             match prim {
+            //                 Primitive::Pair(_, ref mut value) => {
+            //                     if let Primitive::Ref(ref reference) = value.as_ref() {
+            //                         let number: u64;
+            //                         {
+            //                             let mut this = reference.borrow_mut();
+            //                             let mut this = this.as_mut();
+            //                             unsafe {
+            //                                 let this = this.get_unchecked_mut();
+            //                                 number = this.number.unwrap();
+            //                             }
+            //                         }
+            //                         *prim = Primitive::Solved(number);
+            //                     }
+            //                 }
+            //                 _ => {},
+            //             }
+            //         });
+            //     }
+            // }
+        }
 
-        // println!("{}", out);
+        // for (number, entity) in self.entity.iter_mut().enumerate() {
+        //     match &mut entity.inner {
+        //         ObjectProj::Pinned(pinned) => {
 
-        Ok(())
+        //         },
+        //         ObjectProj::Unpinned(unpinned) => {
+        //             // unpinned.inner.iter_mut().for_each(|f| {
+        //             //     f.flatten();
+        //             // });
+        //             // let m: Vec<Primitive> = unpinned.inner.into_iter().flat_map(|x| x).collect();
+        //             // println!("{:#?}", m);
+        //             unpinned.inner.iter_mut().map(|iter| iter.iter_mut()).flatten().for_each(|obj| {
+        //                 println!("-> {:#?}", obj);
+        //             });
+        //             // unpinned.number = Some(number as u64);
+        //             // unpinned.inner.iter_mut().for_each(|prim: &mut Primitive| {
+        //             //     prim.iter_mut().for_each(|atm: &mut Primitive| {
+        //             //         println!("unpined {:#?}", atm);
+        //             //         match atm {
+        //             //             Primitive::Pair(ref mut key, ref mut value) => {
+        //             //                 if let Primitive::Ref(ref reference) = value.as_ref() {
+        //             //                     let reference: &Rc<RefCell<Pin<Box<Object>>>> = reference;
+        //             //                     let number: u64;
+        //             //                     {
+        //             //                         let mut this = reference.borrow_mut();
+        //             //                         let mut this = this.as_mut();
+        //             //                         unsafe {
+        //             //                             let mut this = this.get_unchecked_mut();
+        //             //                             number = this.number.unwrap();
+        //             //                         }
+        //             //                     }
+        //             //                     // let mut this = this.as_mut();
+        //             //                     // unsafe {
+        //             //                     //     let mut this = this.get_unchecked_mut();
+        //             //                     //     // *value = Box::new(Primitive::Number(this.number.unwrap()));
+        //             //                     //     // std::mem::replace(&mut value, &mut Box::new(Primitive::Number(this.number.unwrap())));
+        //             //                     // }
+        //             //                     *atm = Primitive::Number(number);
+        //             //                 }
+        //             //             },
+        //             //             _ => {}
+        //             //         }
+        //             //     });
+        //             // });
+        //         }
+        //     }
+        // }
     }
 }
 
@@ -355,10 +367,10 @@ impl Resource {
     }
 }
 
-impl Into<Object> for Resource {
-    fn into(self) -> Object {
-        Object::new(vec![
-            Primitive::dictionary(
+impl Into<Entity> for Resource {
+    fn into(self) -> Entity {
+        Entity::new(vec![
+            Primitive::Dictionary(
                 self.fonts.into_iter().map(Into::into).collect()
             )]
         )
@@ -369,7 +381,7 @@ impl Into<Primitive> for Font {
     fn into(self) -> Primitive {
         Primitive::pair(
             Primitive::name(self.identifier), 
-            Primitive::dictionary(vec![
+            Primitive::Dictionary(vec![
                 Primitive::pair(Primitive::name("Type"), Primitive::name("Font")),
                 Primitive::pair(Primitive::name("BaseFont"), Primitive::name(self.base)),
                 Primitive::pair(Primitive::name("SubType"), Primitive::name("Type1"))
@@ -378,6 +390,7 @@ impl Into<Primitive> for Font {
     }
 }
 
+#[derive(Debug)]
 enum MediaBox {
     A4
 }
@@ -392,6 +405,7 @@ impl Into<Primitive> for MediaBox {
     }
 }
 
+#[derive(Debug)]
 struct Contents {
 
 }
@@ -404,6 +418,7 @@ impl Contents {
     }
 }
 
+#[derive(Debug)]
 struct Page {
     resource: Resource,
     mediabox: MediaBox,
@@ -411,7 +426,7 @@ struct Page {
 }
 
 impl Page {
-    pub fn new(mediabox: MediaBox) -> Page {
+    pub fn new(mediabox: MediaBox) -> Self {
         Page {
             resource: Resource::new(),
             contents: Contents::new(),
@@ -420,40 +435,30 @@ impl Page {
     }
 }
 
-impl Into<Vec<Object>> for Page {
-    fn into(self) -> Vec<Object> {
-        let resource: Object = self.resource.into();
-        let pages = Object::new(Primitive::Dictionary(
+impl Into<Vec<Entity>> for Page {
+    fn into(self) -> Vec<Entity> {
+        let mut resource: Entity = self.resource.into();
+        let pages = Entity::new(Primitive::Dictionary(
             vec![
                 Primitive::pair(Primitive::name("Type"), Primitive::name("Page")),
                 Primitive::pair(Primitive::name("Parent"), Primitive::ParentRef),
-                Primitive::pair(Primitive::name("Resource"), Primitive::Ref(&resource)),
+                Primitive::pair(Primitive::name("Resource"), Primitive::Ref(resource.as_ref())),
                 Primitive::pair(Primitive::name("MediaBox"), self.mediabox.into()),
             ]
         ));
-
-
-        println!("resource ref {:?}", &resource as *const Object);
-
+        
         vec![resource, pages]
     }
 }
 
 fn main() {
-    // let mut doc: Document = Document::new();
+    let mut doc = Document::new();
+    let mut page = Page::new(MediaBox::A4);
+    doc.appendix(page);
+    let mut page = Page::new(MediaBox::A4);
+    doc.appendix(page);
 
-    // let mut page = Page::new(MediaBox::A4);
-    // let mut page: Vec<Object> = page.into();
+    doc.resolve();
 
-    // doc.appendix(page);
-
-    // let mut page = Page::new(MediaBox::A4);
-    // let mut page: Vec<Object> = page.into();
-
-    // doc.appendix(page);
-
-    // doc.encode();
-    let mut entity = Entity::new(Primitive::Dictionary(vec![]));
-    _ = entity.as_ref();
-    _ = entity.as_ref();
+    println!("{:#?}", doc.entity);
 }
