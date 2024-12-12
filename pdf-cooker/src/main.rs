@@ -1,25 +1,20 @@
 mod object;
+mod utils;
 
 use object::*;
-// use std::pin::Pin;
-fn main() {
-    let mut entity = Object::new(vec![]);
-    let mut reference = entity.as_ref();
-    // entity.fmap(|pin| {
-    //     unsafe {
-    //         let this = pin.get_unchecked_mut();
-    //         this.number = Some(10);
-    //     }
-    // });
-    // a.fmap(|pin| {
-    //     unsafe {
-    //         let this = pin.get_unchecked_mut();
-    //         this.number = Some(120);
-    //     }
-    // });
-    reference.fmap(|raw| {
-        println!("{:?}", raw);
-    });
 
-    println!("{:?}", entity);
+fn main() {
+    let mut obj = Object::new(vec![]);    
+    obj.fmap(|r| {
+        *r = Some(20);
+    });
+    let mut reference = obj.as_ref();
+
+    obj.fmap(|r| {
+        *r = Some(10);
+    });
+    
+    unsafe {
+        println!("{:?}", *reference);
+    }
 }
