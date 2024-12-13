@@ -1,16 +1,51 @@
+use std::cell::RefCell;
+use std::rc::Rc;
+
 use crate::object::*;
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub enum Primitive {
     Array(Vec<Primitive>),
-    Map(Vec<Primitive>),
+    Map(Vec<Pair>),
     Number(u64),
     Name(String),
     ParentRef,
-    Pair(Box<Primitive>, Box<Primitive>),
+    Pair(Rc<RefCell<Primitive>>,Rc<RefCell<Primitive>>),
     Defer(*const RawObject),
     Ref(u64),
     Stream(String),
+}
+
+#[derive(Debug, Clone)]
+pub struct Pair { 
+    key: Rc<RefCell<Primitive>>,
+    value: Rc<RefCell<Primitive>>,
+    prim: Primitive,
+}
+
+impl Pair {
+    pub fn new(key: Primitive, value: Primitive) -> Pair {
+        let key = Rc::new(RefCell::new(key));
+        let value = Rc::new(RefCell::new(value));
+        
+        Pair {
+            key: key.clone(),
+            value: value.clone(),
+            prim: Primitive::Pair(key, value),
+        }   
+    }
+}
+
+impl Into<Primitive> for Pair {
+    fn into(self) -> Primitive {
+        Primitive::Pair(self.key.clone(), self.value.clone())
+    }
+}
+
+impl AsMut<Primitive> for Pair {
+    fn as_mut(&mut self) -> &mut Primitive {
+        &mut self.prim
+    }
 }
 
 impl Primitive {
@@ -19,7 +54,7 @@ impl Primitive {
     }
 
     pub fn pair(key: Primitive, value: Primitive) -> Self {
-        Primitive::Pair(Box::new(key), Box::new(value))
+        Primitive::Pair(Rc::new(RefCell::new(key)), Rc::new(RefCell::new(value)))
     }
 
     pub fn iter_mut(&mut self) -> PrimitiveMutIterator {
@@ -33,29 +68,51 @@ impl Primitive {
     } 
 }
 
+impl AsMut<Primitive> for Primitive {
+    fn as_mut(&mut self) -> &mut Primitive {
+        self
+    }
+}
+
+impl std::fmt::Display for Primitive {
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        match self {
+            Primitive::Array(array) => write!(f, "[{}]", array.iter().map(|elm| format!("{}", elm)).collect::<Vec<_>>().join(" ")),
+            // Primitive::Map(map) => write!(f, "<<{}\n>>", map.iter().map(|pair| format!("{}", pair)).collect::<String>()),
+            Primitive::Number(number) => write!(f, "{}", number),
+            Primitive::Pair(key, value) => write!(f, "\npair"),
+            _ => Ok(())
+        }
+    }
+}
+
 pub struct PrimitiveMutIterator<'a> {
-    stack: Vec<&'a mut Primitive>,
+    stack: Vec<&'a mut (dyn AsMut<Primitive> + 'a)>,
 }
 
 impl<'a> Iterator for PrimitiveMutIterator<'a> {
     type Item = &'a mut Primitive;
 
     fn next(&mut self) -> Option<Self::Item> {
-        while let Some(current) = self.stack.pop() {
+        while let Some(ref mut current) = self.stack.pop() {
             unsafe {
-                match *current.as_mut_ptr() {
+                match *current.as_mut().as_mut_ptr() {
+                    Primitive::Map(ref mut pairs) => {
+                        pairs.iter_mut().for_each(|pair| {
+                            self.stack.push(pair);
+                        });
+                    },
+                    // self.stack.extend(pairs.iter_mut().map(Primitive::Pair)),
                     Primitive::Array(ref mut array) => {
-                        let array: Vec<&'a mut Primitive> = array.iter_mut().map(|a| &mut *a.as_mut_ptr()).collect();
-                        self.stack.extend(array);
-                    }
-                    Primitive::Map(ref mut dictionary) => {
-                        self.stack.extend(dictionary.iter_mut());
-                    }
+                        array.iter_mut().for_each(|elm| {
+                            self.stack.push(elm);
+                        });
+                    },
+                    // self.stack.extend(array.iter_mut()),
                     _ => {}
                 }
-            }
-            unsafe {
-                return Some(&mut *current.as_mut_ptr());
+
+                return Some(&mut *current.as_mut().as_mut_ptr());
             }
         }
 
