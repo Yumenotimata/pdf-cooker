@@ -51,9 +51,9 @@ impl Document {
 
         self.flatten(|prim| {
             if let Primitive::Pair(_, ref mut value) = prim {
-                let mut value = value.borrow_mut();
-                if let Primitive::Defer(ptr) = *value {
-                    *value = Primitive::Ref(*query.get(&ptr).unwrap());
+                // let mut value = value.borrow_mut();
+                if let Primitive::Defer(ptr) = **value {
+                    **value = Primitive::Ref(*query.get(&ptr).unwrap());
                 }
             }
         });

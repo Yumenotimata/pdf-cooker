@@ -27,10 +27,10 @@ impl Into<Vec<Object>> for Page {
         let mut resource: Object = self.resource.into();
         let pages = Object::new(Primitive::Map(
             vec![
-                Pair::new(Primitive::name("Type"), Primitive::name("Page")),
-                Pair::new(Primitive::name("Parent"), Primitive::ParentRef),
-                Pair::new(Primitive::name("Resource"), Primitive::Defer(resource.as_ref())),
-                Pair::new(Primitive::name("MediaBox"), self.mediabox.into()),
+                Pair::new(Name::new("Type"), Name::new("Page")),
+                Pair::new(Name::new("Parent"), Primitive::ParentRef),
+                Pair::new(Name::new("Resource"), Primitive::Defer(resource.as_ref())),
+                Pair::new(Name::new("MediaBox"), self.mediabox),
             ]
         ));
         
@@ -83,11 +83,11 @@ impl Into<Object> for Resource {
 impl Into<Pair> for Font {
     fn into(self) -> Pair {
         Pair::new(
-            Primitive::name(self.identifier), 
+            Name::new(self.identifier), 
             Primitive::Map(vec![
-                Pair::new(Primitive::name("Type"), Primitive::name("Font")),
-                Pair::new(Primitive::name("BaseFont"), Primitive::name(self.base)),
-                Pair::new(Primitive::name("SubType"), Primitive::name("Type1"))
+                Pair::new(Name::new("Type"), Name::new("Font")),
+                Pair::new(Name::new("BaseFont"), Name::new(self.base)),
+                Pair::new(Name::new("SubType"), Name::new("Type1"))
             ])
         )
     }

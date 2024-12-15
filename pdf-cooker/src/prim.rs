@@ -10,51 +10,43 @@ pub enum Primitive {
     Number(u64),
     Name(String),
     ParentRef,
-    Pair(Rc<RefCell<Primitive>>,Rc<RefCell<Primitive>>),
+    Pair(Box<Primitive>, Box<Primitive>),
     Defer(*const RawObject),
     Ref(u64),
     Stream(String),
 }
 
 #[derive(Debug, Clone)]
-pub struct Pair { 
-    key: Rc<RefCell<Primitive>>,
-    value: Rc<RefCell<Primitive>>,
-    prim: Primitive,
-}
+pub struct Pair(Primitive);
+pub struct Name(Primitive);
 
-impl Pair {
-    pub fn new(key: Primitive, value: Primitive) -> Pair {
-        let key = Rc::new(RefCell::new(key));
-        let value = Rc::new(RefCell::new(value));
-        
-        Pair {
-            key: key.clone(),
-            value: value.clone(),
-            prim: Primitive::Pair(key, value),
-        }   
+impl Name {
+    pub fn new<N: Into<String>>(name: N) -> Name {
+        Name(Primitive::Name(name.into())) 
     }
 }
 
-impl Into<Primitive> for Pair {
+impl Into<Primitive> for Name {
     fn into(self) -> Primitive {
-        Primitive::Pair(self.key.clone(), self.value.clone())
+        self.0
+    }
+}
+
+impl Pair {
+    pub fn new<P: Into<Primitive>>(key: Name, value: P) -> Pair {
+        Pair(Primitive::Pair(Box::new(key.0), Box::new(value.into())))
     }
 }
 
 impl AsMut<Primitive> for Pair {
     fn as_mut(&mut self) -> &mut Primitive {
-        &mut self.prim
+        &mut self.0
     }
 }
 
 impl Primitive {
     pub fn name<S: Into<String>>(name: S) -> Self {
         Primitive::Name(name.into())
-    }
-
-    pub fn pair(key: Primitive, value: Primitive) -> Self {
-        Primitive::Pair(Rc::new(RefCell::new(key)), Rc::new(RefCell::new(value)))
     }
 
     pub fn iter_mut(&mut self) -> PrimitiveMutIterator {
