@@ -1,24 +1,17 @@
+mod prim;
 mod object;
 mod utils;
-mod prim;
 mod document;
 mod page;
 
-use document::*;
-use object::*;
-use document::*;
 use prim::*;
+use object::*;
+use utils::*;
+use document::*;
 use page::*;
 
 fn main() {
-    let mut doc = Document::new();
-    let mut page = Page::new(MediaBox::A4);
+    let obj = map![("a", array![2, "a", Prim::defer(1 as *const RawObject)]), ("a", array![2, "a", Prim::defer(1 as *const RawObject)])];
 
-    doc.appendix(page);
-
-    doc.resolve();
-
-    println!("{:#?}", doc);
-    // let mediabox = Primitive::Array(vec![Primitive::Number(1), Primitive::Number(2)]);
-    // println!("{}", mediabox);
+    println!("{:#?}", obj);
 }

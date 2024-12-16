@@ -4,7 +4,6 @@ use crate::document::*;
 use crate::object::*;
 use crate::prim::*;
 
-
 #[derive(Debug)]
 pub struct Page {
     resource: Resource,
@@ -25,16 +24,17 @@ impl Page {
 impl Into<Vec<Object>> for Page {
     fn into(self) -> Vec<Object> {
         let mut resource: Object = self.resource.into();
-        let pages = Object::new(Primitive::Map(
-            vec![
-                Pair::new(Name::new("Type"), Name::new("Page")),
-                Pair::new(Name::new("Parent"), Primitive::ParentRef),
-                Pair::new(Name::new("Resource"), Primitive::Defer(resource.as_ref())),
-                Pair::new(Name::new("MediaBox"), self.mediabox),
-            ]
-        ));
+        // let pages = Object::new(Prim::map(
+        //     vec![
+        //         Prim::pair("Type", "Page"),
+        //         // Prim::pair("Parent", Prim::ParentRef),
+        //         Prim::pair("Resource", Prim::defer(resource.as_ref())),
+        //         Prim::pair("MediaBox", self.mediabox),
+        //     ]
+        // ));
         
-        vec![resource, pages]
+        // vec![resource, pages]
+        todo!()
     }
 }
 
@@ -73,23 +73,24 @@ impl Resource {
 impl Into<Object> for Resource {
     fn into(self) -> Object {
         Object::new(vec![
-            Primitive::Map(
-                self.fonts.into_iter().map(Into::into).collect()
-            )]
-        )
+            Prim::map(
+                self.fonts.into_iter().map(|f| f.into()).collect::<Vec<Pair>>()
+            )
+        ])
     }
 }
 
 impl Into<Pair> for Font {
     fn into(self) -> Pair {
-        Pair::new(
-            Name::new(self.identifier), 
-            Primitive::Map(vec![
-                Pair::new(Name::new("Type"), Name::new("Font")),
-                Pair::new(Name::new("BaseFont"), Name::new(self.base)),
-                Pair::new(Name::new("SubType"), Name::new("Type1"))
-            ])
-        )
+        // Prim::pair(
+        //     self.identifier, 
+        //     Prim::map(vec![
+        //         Prim::pair("Type", "Font"),
+        //         Prim::pair("BaseFont", self.base),
+        //         Prim::pair("SubType", "Type1")
+        //     ])
+        // )
+        todo!()
     }
 }
 
@@ -98,13 +99,14 @@ pub enum MediaBox {
     A4
 }
 
-impl Into<Primitive> for MediaBox {
-    fn into(self) -> Primitive {
-        Primitive::Array(
-            match self {
-                MediaBox::A4 => [0, 0, 595, 842]
-            }.into_iter().map(Primitive::Number).collect()
-        )
+impl Into<Prim> for MediaBox {
+    fn into(self) -> Prim {
+        // Prim::array(
+        //     match self {
+        //         MediaBox::A4 => [0, 0, 595, 842]
+        //     }.into_iter().map(Prim::number).collect::<Vec<Prim>>()
+        // )
+        todo!()
     }
 }
 
