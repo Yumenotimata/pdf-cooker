@@ -21,20 +21,17 @@ impl Page {
     }
 }
 
-impl Into<Vec<Object>> for Page {
+impl<'a> Into<Vec<Object>> for Page {
     fn into(self) -> Vec<Object> {
         let mut resource: Object = self.resource.into();
-        // let pages = Object::new(Prim::map(
-        //     vec![
-        //         Prim::pair("Type", "Page"),
-        //         // Prim::pair("Parent", Prim::ParentRef),
-        //         Prim::pair("Resource", Prim::defer(resource.as_ref())),
-        //         Prim::pair("MediaBox", self.mediabox),
-        //     ]
-        // ));
+
+        let pages = Object::new(map![
+            ("Type", "Page"),
+            ("Resource", &mut resource),
+            ("MediaBox", self.mediabox)
+        ]);
         
-        // vec![resource, pages]
-        todo!()
+        vec![resource, pages]
     }
 }
 
@@ -64,33 +61,27 @@ impl Resource {
 
     pub fn add_font<S: Into<String>>(&mut self, base: S) {
         let base = base.into();
-        if !self.fonts.contains(&Font {base: base.clone(), identifier: String::from("")}) {
-            self.fonts.insert(Font{base: base.clone(), identifier: format!("F{}", self.fonts.len())});
+        if !self.fonts.contains(&Font { base: base.clone(), identifier: String::from("") }) {
+            self.fonts.insert(Font { base: base.clone(), identifier: format!("F{}", self.fonts.len()) });
         }
     }
 }
 
-impl Into<Object> for Resource {
+impl<'a> Into<Object> for Resource {
     fn into(self) -> Object {
-        Object::new(vec![
-            Prim::map(
-                self.fonts.into_iter().map(|f| f.into()).collect::<Vec<Pair>>()
-            )
-        ])
+        Object::new(
+            self.fonts.into_iter().map(Into::into).collect::<Vec<Primitive>>()
+        )
     }
 }
 
-impl Into<Pair> for Font {
-    fn into(self) -> Pair {
-        // Prim::pair(
-        //     self.identifier, 
-        //     Prim::map(vec![
-        //         Prim::pair("Type", "Font"),
-        //         Prim::pair("BaseFont", self.base),
-        //         Prim::pair("SubType", "Type1")
-        //     ])
-        // )
-        todo!()
+impl<'a> Into<Primitive> for Font {
+    fn into(self) -> Primitive {
+        map![(self.identifier, map![
+            ("Type", "Font"),
+            ("BaseFont", self.base),
+            ("SubType", "Type1")
+        ])]
     }
 }
 
@@ -99,14 +90,11 @@ pub enum MediaBox {
     A4
 }
 
-impl Into<Prim> for MediaBox {
-    fn into(self) -> Prim {
-        // Prim::array(
-        //     match self {
-        //         MediaBox::A4 => [0, 0, 595, 842]
-        //     }.into_iter().map(Prim::number).collect::<Vec<Prim>>()
-        // )
-        todo!()
+impl Into<Primitive> for MediaBox {
+    fn into(self) -> Primitive {
+        match self {
+            MediaBox::A4 => array![0, 0, 595, 842]
+        }
     }
 }
 
