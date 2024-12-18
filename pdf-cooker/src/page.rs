@@ -6,9 +6,9 @@ use crate::prim::*;
 
 #[derive(Debug)]
 pub struct Page {
-    resource: Resource,
-    mediabox: MediaBox,
-    contents: Contents,
+    pub resource: Resource,
+    pub mediabox: MediaBox,
+    pub contents: Contents,
 }
 
 impl Page {
@@ -48,7 +48,7 @@ impl PartialEq for Font {
 }
 
 #[derive(Debug)]
-struct Resource {
+pub struct Resource {
     fonts: HashSet<Font>,
 }
 
@@ -69,19 +69,19 @@ impl Resource {
 
 impl<'a> Into<Object> for Resource {
     fn into(self) -> Object {
-        Object::new(
-            self.fonts.into_iter().map(Into::into).collect::<Vec<Primitive>>()
-        )
+        Object::new(map![
+            ("Font", Primitive::Map(self.fonts.into_iter().map(Into::into).collect::<Vec<Primitive>>()))
+        ])
     }
 }
 
 impl<'a> Into<Primitive> for Font {
     fn into(self) -> Primitive {
-        map![(self.identifier, map![
+        Primitive::Pair(self.identifier, Box::new(map![
             ("Type", "Font"),
             ("BaseFont", self.base),
             ("SubType", "Type1")
-        ])]
+        ]))
     }
 }
 

@@ -8,3 +8,4 @@ edition = "2021"
 [dependencies]
 pin-project = "1"
 either = "1"
+bytes = "1"

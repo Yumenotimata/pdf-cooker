@@ -3,9 +3,29 @@ use std::ops::{Deref, DerefMut};
 use pin_project::{pin_project};
 
 #[derive(Debug)]
-#[pin_project(project = RawFixProj)]
+#[pin_project(project = RawFixProj, project_ref = RawFixProjRef)]
 pub struct RawFix<T> {
     pub inner: T
+}
+
+impl<T> Deref for RawFixProj<'_, T> {
+    type Target = T;
+    fn deref(&self) -> &Self::Target {
+        &self.inner
+    }
+}
+
+impl<T> DerefMut for RawFixProj<'_, T> {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.inner
+    }
+}
+
+impl<T> Deref for RawFixProjRef<'_, T> {
+    type Target = T;
+    fn deref(&self) -> &Self::Target {
+        &self.inner
+    }
 }
 
 impl<T> RawFix<T> {
@@ -15,6 +35,10 @@ impl<T> RawFix<T> {
 
     pub fn fmap<R>(self: Pin<&mut Self>, f: impl FnOnce(RawFixProj<T>) -> R) -> R {
         f(self.project())
+    }
+
+    pub fn fmap_ref<R>(self: Pin<&Self>, f: impl FnOnce(RawFixProjRef<T>) -> R) -> R {
+        f(self.project_ref())
     }
 }
 
@@ -45,6 +69,10 @@ impl<T> Fix<T> {
 
     pub fn fmap<R>(&mut self, f: impl FnOnce(RawFixProj<T>) -> R) -> R {
         self.as_mut().fmap(f)
+    }
+
+    pub fn fmap_ref<R>(&self, f: impl FnOnce(RawFixProjRef<T>) -> R) -> R {
+        self.as_ref().fmap_ref(f)
     }
 }
 
